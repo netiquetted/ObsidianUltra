@@ -228,6 +228,10 @@ local Library = {
     Dialogues = {},
     ActiveDialog = nil,
     MainFrame = nil,
+
+    --// Popups (medium-risk centered cards) \\--
+    Popups = {},
+    PopupCounter = 0,
     ActiveExpandedDropdown = nil,
 
     --// Loading Window \\--
@@ -441,6 +445,36 @@ local Templates = {
         --// so the user opts in themselves via Window:SetGlow(true) (or this flag).
         Glow = false,
 
+        --// Soft drop shadow behind the window (low-risk visual polish)
+        Shadow = true,
+        ShadowTransparency = 0.55,
+        ShadowSize = 22,
+        ShadowOffset = Vector2.new(0, 6),
+        ShadowColor = "DarkColor",
+
+        --// Optional gradient overlay on the main window background
+        Gradient = false,
+        GradientColorSequence = nil, -- defaults to Accent -> Background
+        GradientTransparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.85),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+        GradientRotation = 35,
+
+        --// Background video (medium-high risk: VideoFrame)
+        BackgroundVideo = nil,
+        BackgroundVideoTransparency = 0.15,
+        BackgroundVideoLooped = true,
+        BackgroundVideoPlaying = true,
+        BackgroundVideoVolume = 0,
+
+        --// Fullscreen backdrop behind everything
+        FullscreenBackground = false,
+        FullscreenBackgroundColor = Color3.fromRGB(0, 0, 0),
+        FullscreenBackgroundTransparency = 0.35,
+        FullscreenBackgroundImage = nil,
+        FullscreenBackgroundImageTransparency = 0.2,
+
         Font = Enum.Font.Code,
         ToggleKeybind = Enum.KeyCode.RightControl,
 
@@ -502,6 +536,28 @@ local Templates = {
         AutoDismiss = true,
         OutsideClickDismiss = true,
         FooterButtons = {}
+    },
+    Popup = {
+        Title = "Popup",
+        Description = "Description",
+        Icon = nil,
+        Time = 4,
+        Persist = false,
+        AutoDismiss = true,
+        Dismissible = true,
+        CloseButton = true,
+        ShowOverlay = false,
+        OutsideClickDismiss = true,
+        OverlayTransparency = 0.74,
+        Width = 360,
+        MaxWidth = 460,
+        Position = nil,
+        AnchorPoint = nil,
+        AccentColor = nil,
+        IconColor = nil,
+        TitleColor = nil,
+        DescriptionColor = nil,
+        Actions = {},
     },
     Loading = {
         Title = "mspaint",
@@ -6745,6 +6801,302 @@ local BaseGroupbox = {}
 do
     local Funcs = {}
 
+    --// Ported from Sizsense: sortable data table
+    function Funcs:AddTable(Idx, Info)
+        if self.Destroyed then
+            return nil
+        end
+
+        Info = Info or {}
+        Info.Columns = Info.Columns or { "#", "Value" }
+        Info.Rows = Info.Rows or {}
+        Info.MaxRows = Info.MaxRows or 10
+        Info.RowHeight = Info.RowHeight or 20
+        Info.HeaderHeight = Info.HeaderHeight or 24
+        Info.Visible = Info.Visible ~= false
+        Info.Sortable = Info.Sortable ~= false
+
+        local Groupbox = self
+        local Container = Groupbox.Container
+
+        local TableObj = {
+            Columns = Info.Columns,
+            OriginalData = {},
+            Rows = {},
+            MaxRows = Info.MaxRows,
+            RowHeight = Info.RowHeight,
+            HeaderHeight = Info.HeaderHeight,
+            Visible = Info.Visible,
+            SortColumn = nil,
+            SortAscending = true,
+            Type = "Table",
+            Text = Info.Text or "Table",
+        }
+
+        local tableHeight = Info.HeaderHeight + (Info.MaxRows * Info.RowHeight) + 6
+
+        local Holder = New("Frame", {
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, 0, 0, tableHeight),
+            Visible = Info.Visible,
+            Parent = Container,
+        })
+
+        local TableFrame = New("Frame", {
+            BackgroundColor3 = "MainColor",
+            Size = UDim2.new(1, 0, 1, 0),
+            ClipsDescendants = true,
+            Parent = Holder,
+        })
+        table.insert(
+            Library.Corners,
+            New("UICorner", {
+                CornerRadius = UDim.new(0, math.max(2, Library.CornerRadius / 2)),
+                Parent = TableFrame,
+            })
+        )
+        Library:AddOutline(TableFrame)
+
+        local HeaderFrame = New("Frame", {
+            BackgroundColor3 = "AccentColor",
+            BorderSizePixel = 0,
+            Size = UDim2.new(1, 0, 0, Info.HeaderHeight),
+            ZIndex = 2,
+            Parent = TableFrame,
+        })
+
+        local ContentFrame = New("ScrollingFrame", {
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Position = UDim2.new(0, 0, 0, Info.HeaderHeight),
+            Size = UDim2.new(1, 0, 1, -Info.HeaderHeight),
+            CanvasSize = UDim2.new(0, 0, 0, 0),
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollBarThickness = 3,
+            ScrollBarImageColor3 = "OutlineColor",
+            BottomImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
+            TopImage = "rbxasset://textures/ui/Scroll/scroll-middle.png",
+            Parent = TableFrame,
+        })
+
+        New("UIListLayout", {
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            Parent = ContentFrame,
+        })
+
+        local columnWidth = 1 / math.max(1, #Info.Columns)
+        local HeaderButtons = {}
+
+        for i, colName in ipairs(Info.Columns) do
+            local HeaderBtn = New("TextButton", {
+                BackgroundTransparency = 1,
+                Position = UDim2.new(columnWidth * (i - 1), 0, 0, 0),
+                Size = UDim2.new(columnWidth, 0, 1, 0),
+                Text = "",
+                ZIndex = 2,
+                Parent = HeaderFrame,
+            })
+
+            New("TextLabel", {
+                BackgroundTransparency = 1,
+                Position = UDim2.new(0, 6, 0, 0),
+                Size = UDim2.new(1, -20, 1, 0),
+                Text = tostring(colName),
+                TextSize = 13,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 2,
+                Parent = HeaderBtn,
+            })
+
+            local SortIndicator = New("TextLabel", {
+                BackgroundTransparency = 1,
+                Position = UDim2.new(1, -16, 0, 0),
+                Size = UDim2.new(0, 14, 1, 0),
+                Text = "",
+                TextSize = 12,
+                ZIndex = 2,
+                Parent = HeaderBtn,
+            })
+
+            HeaderButtons[i] = {
+                Button = HeaderBtn,
+                Indicator = SortIndicator,
+            }
+
+            if Info.Sortable then
+                HeaderBtn.MouseButton1Click:Connect(function()
+                    if TableObj.SortColumn == i then
+                        TableObj.SortAscending = not TableObj.SortAscending
+                    else
+                        TableObj.SortColumn = i
+                        TableObj.SortAscending = true
+                    end
+
+                    for j, hdr in ipairs(HeaderButtons) do
+                        if j == i then
+                            hdr.Indicator.Text = TableObj.SortAscending and "▲" or "▼"
+                        else
+                            hdr.Indicator.Text = ""
+                        end
+                    end
+
+                    TableObj:Sort()
+                end)
+            end
+        end
+
+        TableObj.TableFrame = TableFrame
+        TableObj.HeaderFrame = HeaderFrame
+        TableObj.ContentFrame = ContentFrame
+        TableObj.Holder = Holder
+        TableObj.ColumnWidth = columnWidth
+        TableObj.HeaderButtons = HeaderButtons
+
+        function TableObj:CreateRow(rowData, layoutOrder)
+            local RowFrame = New("Frame", {
+                BackgroundColor3 = (layoutOrder % 2 == 0) and "OutlineColor" or "MainColor",
+                BackgroundTransparency = (layoutOrder % 2 == 0) and 0.7 or 0.9,
+                BorderSizePixel = 0,
+                Size = UDim2.new(1, -3, 0, self.RowHeight),
+                LayoutOrder = layoutOrder,
+                Parent = ContentFrame,
+            })
+
+            local cells = {}
+            for i, cellData in ipairs(rowData) do
+                local CellLabel = New("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Position = UDim2.new(self.ColumnWidth * (i - 1), 6, 0, 0),
+                    Size = UDim2.new(self.ColumnWidth, -12, 1, 0),
+                    Text = tostring(cellData),
+                    TextSize = 13,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                    Parent = RowFrame,
+                })
+                table.insert(cells, CellLabel)
+            end
+
+            return {
+                Frame = RowFrame,
+                Cells = cells,
+                Data = rowData,
+            }
+        end
+
+        function TableObj:Sort()
+            if not self.SortColumn or #self.OriginalData == 0 then
+                return
+            end
+
+            local sortedData = {}
+            for _, row in ipairs(self.OriginalData) do
+                table.insert(sortedData, row)
+            end
+
+            table.sort(sortedData, function(a, b)
+                local valA = a[self.SortColumn]
+                local valB = b[self.SortColumn]
+
+                if type(valA) == "number" and type(valB) == "number" then
+                    if self.SortAscending then
+                        return valA < valB
+                    else
+                        return valA > valB
+                    end
+                else
+                    valA = tostring(valA):lower()
+                    valB = tostring(valB):lower()
+                    if self.SortAscending then
+                        return valA < valB
+                    else
+                        return valA > valB
+                    end
+                end
+            end)
+
+            self:RenderRows(sortedData)
+        end
+
+        function TableObj:RenderRows(data)
+            for _, row in ipairs(self.Rows) do
+                if row.Frame then
+                    row.Frame:Destroy()
+                end
+            end
+            self.Rows = {}
+
+            for i, rowData in ipairs(data) do
+                if i > self.MaxRows then
+                    break
+                end
+                table.insert(self.Rows, self:CreateRow(rowData, i))
+            end
+        end
+
+        function TableObj:AddRow(rowData)
+            if #self.Rows >= self.MaxRows then
+                return nil
+            end
+            table.insert(self.OriginalData, rowData)
+            local row = self:CreateRow(rowData, #self.Rows + 1)
+            table.insert(self.Rows, row)
+            return row
+        end
+
+        function TableObj:SetRows(rowsData)
+            self.OriginalData = {}
+            for _, row in ipairs(rowsData) do
+                table.insert(self.OriginalData, row)
+            end
+
+            if self.SortColumn then
+                self:Sort()
+            else
+                self:RenderRows(rowsData)
+            end
+        end
+
+        function TableObj:Clear()
+            for _, row in ipairs(self.Rows) do
+                if row.Frame then
+                    row.Frame:Destroy()
+                end
+            end
+            self.Rows = {}
+            self.OriginalData = {}
+
+            for _, hdr in ipairs(self.HeaderButtons) do
+                hdr.Indicator.Text = ""
+            end
+            self.SortColumn = nil
+            self.SortAscending = true
+        end
+
+        function TableObj:SetVisible(Visible)
+            self.Visible = Visible
+            Holder.Visible = Visible
+            Groupbox:Resize()
+        end
+
+        function TableObj:GetRowCount()
+            return #self.Rows
+        end
+
+        if Info.Rows and #Info.Rows > 0 then
+            TableObj:SetRows(Info.Rows)
+        end
+
+        Groupbox:Resize()
+        table.insert(Groupbox.Elements, TableObj)
+
+        if Idx then
+            Options[Idx] = TableObj
+        end
+
+        return TableObj
+    end
+
     function Funcs:AddDivider(...)
         if self.Destroyed then return nil end
 
@@ -6887,6 +7239,9 @@ do
             Data.Size = Params.Size or 14
             Data.Visible = Params.Visible or true
             Data.Idx = typeof(Second) == "table" and First or nil
+            Data.Badge = Params.Badge
+            Data.BadgeColor = Params.BadgeColor or Params.BadgeBackgroundColor
+            Data.BadgeTextColor = Params.BadgeTextColor
         else
             Data.Text = First or ""
             Data.DoesWrap = Second or false
@@ -6920,6 +7275,59 @@ do
             TextXAlignment = Groupbox.IsKeyTab and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left,
             Parent = Container,
         })
+
+        --// Optional badge pill next to the label (e.g. LIVE, NEW, BETA)
+        local BadgeLabel
+        if Data.Badge and tostring(Data.Badge) ~= "" then
+            local BadgeBg = Data.BadgeColor
+            if typeof(BadgeBg) == "string" then
+                BadgeBg = GetSchemeValue(BadgeBg) or Library.Scheme.AccentColor
+            elseif typeof(BadgeBg) ~= "Color3" then
+                BadgeBg = Library.Scheme.AccentColor
+            end
+
+            local BadgeTxt = Data.BadgeTextColor
+            if typeof(BadgeTxt) == "string" then
+                BadgeTxt = GetSchemeValue(BadgeTxt) or Library.Scheme.FontColor
+            elseif typeof(BadgeTxt) ~= "Color3" then
+                BadgeTxt = Library.Scheme.FontColor
+            end
+
+            BadgeLabel = New("TextLabel", {
+                AnchorPoint = Vector2.new(1, 0.5),
+                AutomaticSize = Enum.AutomaticSize.X,
+                BackgroundColor3 = BadgeBg,
+                BackgroundTransparency = 0.15,
+                Position = UDim2.new(1, 0, 0.5, 0),
+                Size = UDim2.fromOffset(0, 16),
+                Text = tostring(Data.Badge),
+                TextColor3 = BadgeTxt,
+                TextSize = 11,
+                ZIndex = 2,
+                Parent = TextLabel,
+            })
+            New("UIPadding", {
+                PaddingLeft = UDim.new(0, 6),
+                PaddingRight = UDim.new(0, 6),
+                Parent = BadgeLabel,
+            })
+            table.insert(
+                Library.Corners,
+                New("UICorner", {
+                    CornerRadius = UDim.new(1, 0),
+                    Parent = BadgeLabel,
+                })
+            )
+
+            function Label:SetBadge(Text: string?)
+                if not Text or tostring(Text) == "" then
+                    BadgeLabel.Visible = false
+                    return
+                end
+                BadgeLabel.Text = tostring(Text)
+                BadgeLabel.Visible = true
+            end
+        end
 
         function Label:Display()
             if not Label.DoesWrap then
@@ -13368,6 +13776,374 @@ function Library:Notify(...)
     return Data
 end
 
+--// Popup (centered card, medium-high risk) \\--
+function Library:CreatePopup(Info, Time)
+    if typeof(Info) ~= "table" then
+        Info = {
+            Description = tostring(Info or ""),
+            Time = Time,
+        }
+    else
+        Info = table.clone(Info)
+        if Time ~= nil then
+            Info.Time = Time
+        end
+    end
+
+    Info = Library:Validate(Info, Templates.Popup)
+
+    Library.PopupCounter += 1
+    local PopupId = tostring(Info.Id or ("Popup_" .. Library.PopupCounter))
+    local ViewportWidth = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.X or 800
+    local MaxWidth = math.max(260, math.min(tonumber(Info.MaxWidth) or 460, ViewportWidth - 32))
+    local Width = math.clamp(tonumber(Info.Width) or 360, 260, MaxWidth)
+
+    local Accent = Info.AccentColor or "AccentColor"
+    local AccentColor = typeof(Accent) == "Color3" and Accent
+        or GetSchemeValue(Accent)
+        or Library.Scheme.AccentColor
+
+    local Popup = {
+        Id = PopupId,
+        Destroyed = false,
+    }
+
+    local PopupGui = New("ScreenGui", {
+        Name = "ObsidianPopup",
+        DisplayOrder = 1001,
+        ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    })
+    ParentUI(PopupGui)
+
+    local PopupParent = PopupGui
+    local Overlay
+    if Info.ShowOverlay or Info.Modal then
+        Overlay = New("TextButton", {
+            AutoButtonColor = false,
+            BackgroundColor3 = "DarkColor",
+            BackgroundTransparency = 1,
+            Size = UDim2.fromScale(1, 1),
+            Text = "",
+            Parent = PopupGui,
+        })
+        PopupParent = Overlay
+        TweenService:Create(Overlay, Library.TweenInfo, {
+            BackgroundTransparency = math.clamp(tonumber(Info.OverlayTransparency) or 0.74, 0, 1),
+        }):Play()
+    end
+
+    local Card = New("Frame", {
+        Active = true,
+        AnchorPoint = Info.AnchorPoint or Vector2.new(0.5, 0.5),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundColor3 = function()
+            return Library:GetBetterColor(Library.Scheme.BackgroundColor, 1)
+        end,
+        ClipsDescendants = true,
+        Position = Info.Position or UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(Width, 0),
+        ZIndex = 10,
+        Parent = PopupParent,
+    })
+    table.insert(
+        Library.Corners,
+        New("UICorner", { CornerRadius = UDim.new(0, Library.CornerRadius + 2), Parent = Card })
+    )
+    Library:AddOutline(Card)
+
+    local CardScale = New("UIScale", {
+        Scale = 0.96,
+        Parent = Card,
+    })
+    TweenService:Create(CardScale, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Scale = 1,
+    }):Play()
+
+    -- Accent bar on the left
+    New("Frame", {
+        BackgroundColor3 = AccentColor,
+        BackgroundTransparency = 0.05,
+        BorderSizePixel = 0,
+        Size = UDim2.new(0, 3, 1, 0),
+        ZIndex = 11,
+        Parent = Card,
+    })
+
+    local Content = New("Frame", {
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        Size = UDim2.fromScale(1, 0),
+        ZIndex = 12,
+        Parent = Card,
+    })
+    New("UIListLayout", {
+        Padding = UDim.new(0, 9),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Parent = Content,
+    })
+    New("UIPadding", {
+        PaddingBottom = UDim.new(0, 12),
+        PaddingLeft = UDim.new(0, 14),
+        PaddingRight = UDim.new(0, 12),
+        PaddingTop = UDim.new(0, 12),
+        Parent = Content,
+    })
+
+    local Header = New("Frame", {
+        BackgroundTransparency = 1,
+        LayoutOrder = 1,
+        Size = UDim2.new(1, 0, 0, 24),
+        ZIndex = 12,
+        Parent = Content,
+    })
+    New("UIListLayout", {
+        FillDirection = Enum.FillDirection.Horizontal,
+        Padding = UDim.new(0, 8),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        Parent = Header,
+    })
+
+    local ParsedIcon = Info.Icon and Library:GetCustomIcon(Info.Icon)
+    local IconLabel
+    if ParsedIcon then
+        IconLabel = New("ImageLabel", {
+            BackgroundTransparency = 1,
+            Image = ParsedIcon.Url,
+            ImageColor3 = Info.IconColor or AccentColor,
+            ImageRectOffset = ParsedIcon.ImageRectOffset,
+            ImageRectSize = ParsedIcon.ImageRectSize,
+            LayoutOrder = 1,
+            Size = UDim2.fromOffset(20, 20),
+            ZIndex = 13,
+            Parent = Header,
+        })
+    end
+
+    local CloseButtonWidth = (Info.CloseButton ~= false and Info.Dismissible ~= false) and 28 or 0
+    local TitleLabel = New("TextLabel", {
+        BackgroundTransparency = 1,
+        LayoutOrder = 2,
+        Size = UDim2.new(1, -(IconLabel and 36 or 8) - CloseButtonWidth, 1, 0),
+        Text = Info.Title or "Popup",
+        TextColor3 = Info.TitleColor or "FontColor",
+        TextSize = 17,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 13,
+        Parent = Header,
+    })
+
+    local CloseButton
+    if Info.CloseButton ~= false and Info.Dismissible ~= false then
+        CloseButton = New("TextButton", {
+            BackgroundColor3 = "MainColor",
+            LayoutOrder = 3,
+            Size = UDim2.fromOffset(24, 24),
+            Text = "×",
+            TextSize = 16,
+            TextTransparency = 0.2,
+            ZIndex = 13,
+            Parent = Header,
+        })
+        table.insert(
+            Library.Corners,
+            New("UICorner", { CornerRadius = UDim.new(0, Library.CornerRadius), Parent = CloseButton })
+        )
+        Library:AddOutline(CloseButton)
+    end
+
+    local DescriptionLabel = New("TextLabel", {
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        LayoutOrder = 2,
+        Size = UDim2.new(1, 0, 0, 0),
+        Text = Info.Description or "",
+        TextColor3 = Info.DescriptionColor or "FontColor",
+        TextSize = 14,
+        TextTransparency = Info.DescriptionColor and 0 or 0.2,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Visible = Info.Description ~= nil and tostring(Info.Description) ~= "",
+        ZIndex = 13,
+        Parent = Content,
+    })
+
+    local Actions = Info.Actions or Info.Buttons
+    if typeof(Actions) == "table" and #Actions > 0 then
+        local ActionsHolder = New("Frame", {
+            AutomaticSize = Enum.AutomaticSize.Y,
+            BackgroundTransparency = 1,
+            LayoutOrder = 3,
+            Size = UDim2.fromScale(1, 0),
+            ZIndex = 13,
+            Parent = Content,
+        })
+        New("UIListLayout", {
+            FillDirection = Enum.FillDirection.Horizontal,
+            HorizontalAlignment = Enum.HorizontalAlignment.Right,
+            Padding = UDim.new(0, 7),
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            Parent = ActionsHolder,
+        })
+
+        for Order, Action in ipairs(Actions) do
+            if typeof(Action) ~= "table" then
+                continue
+            end
+
+            local Variant = tostring(Action.Variant or (Action.Risky and "Destructive" or "Secondary"))
+            local ButtonColor = "MainColor"
+            local ButtonTextColor = Library.Scheme.FontColor
+            if Variant == "Primary" then
+                ButtonColor = AccentColor
+                ButtonTextColor = Color3.new(1, 1, 1)
+            elseif Variant == "Destructive" then
+                ButtonColor = "DestructiveColor"
+                ButtonTextColor = Color3.new(1, 1, 1)
+            elseif Variant == "Ghost" then
+                ButtonColor = "BackgroundColor"
+            end
+
+            local Button = New("TextButton", {
+                AutomaticSize = Enum.AutomaticSize.X,
+                BackgroundColor3 = ButtonColor,
+                LayoutOrder = Action.Order or Order,
+                Size = UDim2.fromOffset(0, 28),
+                Text = tostring(Action.Title or Action.Text or "Action"),
+                TextColor3 = ButtonTextColor,
+                TextSize = 14,
+                ZIndex = 14,
+                Parent = ActionsHolder,
+            })
+            New("UIPadding", {
+                PaddingLeft = UDim.new(0, 10),
+                PaddingRight = UDim.new(0, 10),
+                Parent = Button,
+            })
+            table.insert(
+                Library.Corners,
+                New("UICorner", { CornerRadius = UDim.new(0, Library.CornerRadius), Parent = Button })
+            )
+            Library:AddOutline(Button)
+
+            local BaseColor = typeof(ButtonColor) == "Color3" and ButtonColor
+                or GetSchemeValue(ButtonColor)
+                or Library.Scheme.MainColor
+            local HoverColor = Library:GetBetterColor(BaseColor, Variant == "Ghost" and 5 or 8)
+
+            Library:GiveSignal(Button.MouseEnter:Connect(function()
+                TweenService:Create(Button, Library.TweenInfo, { BackgroundColor3 = HoverColor }):Play()
+            end))
+            Library:GiveSignal(Button.MouseLeave:Connect(function()
+                TweenService:Create(Button, Library.TweenInfo, { BackgroundColor3 = BaseColor }):Play()
+            end))
+            Library:GiveSignal(Button.MouseButton1Click:Connect(function()
+                Library:SafeCallback(Action.Callback or Action.Func, Popup)
+                if Action.CloseOnClick ~= false and not Popup.Destroyed then
+                    Popup:Close()
+                end
+            end))
+        end
+    end
+
+    local TimerFill
+    local AutoDismissTime = tonumber(Info.Time) or 0
+    if Info.Persist ~= true and Info.AutoDismiss ~= false and AutoDismissTime > 0 then
+        local TimerTrack = New("Frame", {
+            BackgroundColor3 = "OutlineColor",
+            BackgroundTransparency = 0.25,
+            BorderSizePixel = 0,
+            LayoutOrder = 4,
+            Size = UDim2.new(1, 0, 0, 2),
+            ZIndex = 13,
+            Parent = Content,
+        })
+        TimerFill = New("Frame", {
+            BackgroundColor3 = AccentColor,
+            BorderSizePixel = 0,
+            Size = UDim2.fromScale(1, 1),
+            ZIndex = 14,
+            Parent = TimerTrack,
+        })
+    end
+
+    function Popup:SetTitle(Title)
+        TitleLabel.Text = tostring(Title or "")
+    end
+
+    function Popup:SetDescription(Description)
+        local Text = tostring(Description or "")
+        DescriptionLabel.Text = Text
+        DescriptionLabel.Visible = Text ~= ""
+    end
+
+    function Popup:Close()
+        if Popup.Destroyed then
+            return
+        end
+        Popup.Destroyed = true
+        Library.Popups[PopupId] = nil
+
+        TweenService:Create(CardScale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Scale = 0.97,
+        }):Play()
+        TweenService:Create(Card, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            BackgroundTransparency = 1,
+        }):Play()
+        if Overlay then
+            TweenService:Create(Overlay, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                BackgroundTransparency = 1,
+            }):Play()
+        end
+
+        task.delay(0.18, function()
+            if PopupGui.Parent then
+                PopupGui:Destroy()
+            end
+        end)
+    end
+
+    Popup.Destroy = Popup.Close
+    Popup.Dismiss = Popup.Close
+
+    if CloseButton then
+        Library:GiveSignal(CloseButton.MouseButton1Click:Connect(function()
+            Popup:Close()
+        end))
+    end
+
+    if Overlay then
+        Library:GiveSignal(Overlay.MouseButton1Click:Connect(function()
+            if Info.OutsideClickDismiss ~= false and Info.Dismissible ~= false then
+                Popup:Close()
+            end
+        end))
+    end
+
+    if TimerFill then
+        TweenService:Create(TimerFill, TweenInfo.new(AutoDismissTime, Enum.EasingStyle.Linear), {
+            Size = UDim2.fromScale(0, 1),
+        }):Play()
+        task.delay(AutoDismissTime, function()
+            if not Popup.Destroyed then
+                Popup:Close()
+            end
+        end)
+    end
+
+    Library.Popups[PopupId] = Popup
+    return Popup
+end
+
+function Library:ShowPopup(Info, Time)
+    return Library:CreatePopup(Info, Time)
+end
+
+Library.Popup = Library.ShowPopup
+Library.AddPopup = Library.CreatePopup
+
 --// Notification History \\--
 function Library:AddNotificationToHistory(Entry)
     if typeof(Entry) ~= "table" then
@@ -13979,10 +14755,21 @@ function Library:CreateWindow(WindowInfo)
         Radius = 18,
         UseAccent = true,
     }
+    local ShadowImage
+    local ShadowConfig = {
+        Enabled = WindowInfo.Shadow ~= false,
+        Transparency = typeof(WindowInfo.ShadowTransparency) == "number" and WindowInfo.ShadowTransparency or 0.55,
+        Size = typeof(WindowInfo.ShadowSize) == "number" and WindowInfo.ShadowSize or 22,
+        Offset = typeof(WindowInfo.ShadowOffset) == "Vector2" and WindowInfo.ShadowOffset or Vector2.new(0, 6),
+        Color = WindowInfo.ShadowColor or "DarkColor",
+    }
+    local GradientFrame
     local Tabs
     local Container
     local BackgroundImage
     local HasBackgroundImage = false
+    local BackgroundVideoFrame
+    local FullscreenBackdrop
     local BottomBackground
     local FooterSegments = {}
     local BuildFooter
@@ -14107,6 +14894,83 @@ function Library:CreateWindow(WindowInfo)
                 MainFrame.AbsoluteSize.Y
             )
         end))
+
+        --// Background Video (medium-high risk)
+        local function ResolveVideoId(Video)
+            if typeof(Video) == "number" then
+                return "rbxassetid://" .. tostring(Video)
+            end
+            if typeof(Video) == "string" then
+                if Video:match("^rbxassetid://") or Video:match("^rbxasset://") then
+                    return Video
+                end
+                if tonumber(Video) then
+                    return "rbxassetid://" .. Video
+                end
+                return Video -- http / custom asset path
+            end
+            return nil
+        end
+
+        if WindowInfo.BackgroundVideo then
+            local VideoId = ResolveVideoId(WindowInfo.BackgroundVideo)
+            if VideoId then
+                BackgroundVideoFrame = New("VideoFrame", {
+                    BackgroundTransparency = 1,
+                    Looped = WindowInfo.BackgroundVideoLooped ~= false,
+                    Playing = WindowInfo.BackgroundVideoPlaying ~= false,
+                    Volume = tonumber(WindowInfo.BackgroundVideoVolume) or 0,
+                    Video = VideoId,
+                    ImageTransparency = math.clamp(tonumber(WindowInfo.BackgroundVideoTransparency) or 0.15, 0, 1),
+                    ZIndex = 0,
+                    Size = UDim2.fromScale(1, 1),
+                    Parent = MainFrame,
+                })
+                BackgroundVideoFrame.ZIndex = 0
+            end
+        end
+
+        --// Fullscreen backdrop
+        if WindowInfo.FullscreenBackground then
+            FullscreenBackdrop = New("Frame", {
+                BackgroundColor3 = WindowInfo.FullscreenBackgroundColor or Color3.new(0, 0, 0),
+                BackgroundTransparency = math.clamp(
+                    tonumber(WindowInfo.FullscreenBackgroundTransparency) or 0.35,
+                    0,
+                    1
+                ),
+                Size = UDim2.fromScale(1, 1),
+                ZIndex = -5,
+                Visible = false,
+                Parent = ScreenGui,
+            })
+
+            if WindowInfo.FullscreenBackgroundImage and WindowInfo.FullscreenBackgroundImage ~= "" then
+                local FsIcon = Library:GetCustomIcon(WindowInfo.FullscreenBackgroundImage)
+                local FsImage = New("ImageLabel", {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.fromScale(1, 1),
+                    ImageTransparency = math.clamp(
+                        tonumber(WindowInfo.FullscreenBackgroundImageTransparency) or 0.2,
+                        0,
+                        1
+                    ),
+                    ScaleType = Enum.ScaleType.Crop,
+                    Parent = FullscreenBackdrop,
+                })
+                if FsIcon then
+                    Library:ApplyLucideIcon(FsImage, FsIcon)
+                else
+                    FsImage.Image = tostring(WindowInfo.FullscreenBackgroundImage)
+                end
+            end
+
+            Library:GiveSignal(RunService.RenderStepped:Connect(function()
+                if FullscreenBackdrop then
+                    FullscreenBackdrop.Visible = Library.Toggled == true
+                end
+            end))
+        end
 
         if WindowInfo.Center then
             MainFrame.Position = UDim2.new(0.5, -MainFrame.Size.X.Offset / 2, 0.5, -MainFrame.Size.Y.Offset / 2)
@@ -15104,6 +15968,237 @@ function Library:CreateWindow(WindowInfo)
         WindowInfo.Title = title
     end
 
+    --// Ported from Sizsense: user profile card at bottom of sidebar
+    local UserProfileRefs = {
+        Holder = nil,
+        Avatar = nil,
+        UsernameLabel = nil,
+        StatusBadge = nil,
+        StatusLabel = nil,
+        LogoutCallback = nil,
+        OriginalName = "",
+        NameVisible = true,
+    }
+
+    local function EnsureUserProfile()
+        if UserProfileRefs.Holder then
+            return
+        end
+
+        local Holder = New("Frame", {
+            AnchorPoint = Vector2.new(0, 1),
+            BackgroundColor3 = "BackgroundColor",
+            Position = UDim2.new(0, 0, 1, -21),
+            Size = UDim2.new(0, InitialLeftWidth, 0, 56),
+            ClipsDescendants = true,
+            Visible = false,
+            ZIndex = 5,
+            Parent = MainFrame,
+        })
+        Library:MakeLine(Holder, {
+            Position = UDim2.fromOffset(8, 0),
+            Size = UDim2.new(1, -16, 0, 1),
+        })
+
+        local Container = New("Frame", {
+            BackgroundTransparency = 1,
+            Size = UDim2.fromScale(1, 1),
+            Parent = Holder,
+        })
+        New("UIPadding", {
+            PaddingBottom = UDim.new(0, 8),
+            PaddingLeft = UDim.new(0, 10),
+            PaddingRight = UDim.new(0, 10),
+            PaddingTop = UDim.new(0, 8),
+            Parent = Container,
+        })
+
+        local AvatarHolder = New("Frame", {
+            BackgroundColor3 = "MainColor",
+            Size = UDim2.fromOffset(40, 40),
+            Parent = Container,
+        })
+        table.insert(Library.PillCorners, New("UICorner", {
+            CornerRadius = UDim.new(1, 0),
+            Parent = AvatarHolder,
+        }))
+        New("UIStroke", {
+            Color = "OutlineColor",
+            Thickness = 1,
+            Parent = AvatarHolder,
+        })
+
+        local Avatar = New("ImageLabel", {
+            BackgroundTransparency = 1,
+            Size = UDim2.fromScale(1, 1),
+            Parent = AvatarHolder,
+        })
+        table.insert(Library.PillCorners, New("UICorner", {
+            CornerRadius = UDim.new(1, 0),
+            Parent = Avatar,
+        }))
+
+        local Info = New("Frame", {
+            BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(48, 0),
+            Size = UDim2.new(1, -88, 1, 0),
+            Parent = Container,
+        })
+        New("UIListLayout", {
+            FillDirection = Enum.FillDirection.Vertical,
+            VerticalAlignment = Enum.VerticalAlignment.Center,
+            Padding = UDim.new(0, 2),
+            Parent = Info,
+        })
+
+        local UsernameLabel = New("TextLabel", {
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, 0, 0, 16),
+            Text = "User",
+            TextSize = 14,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            Parent = Info,
+        })
+
+        local StatusBadge = New("Frame", {
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundColor3 = "AccentColor",
+            Size = UDim2.fromOffset(0, 16),
+            Parent = Info,
+        })
+        table.insert(Library.PillCorners, New("UICorner", {
+            CornerRadius = UDim.new(1, 0),
+            Parent = StatusBadge,
+        }))
+        New("UIPadding", {
+            PaddingLeft = UDim.new(0, 6),
+            PaddingRight = UDim.new(0, 6),
+            Parent = StatusBadge,
+        })
+
+        local StatusLabel = New("TextLabel", {
+            AutomaticSize = Enum.AutomaticSize.X,
+            BackgroundTransparency = 1,
+            Size = UDim2.fromOffset(0, 16),
+            Text = "FREE",
+            TextSize = 10,
+            Parent = StatusBadge,
+        })
+
+        local LogoutButton = New("TextButton", {
+            AnchorPoint = Vector2.new(1, 0.5),
+            BackgroundColor3 = "MainColor",
+            Position = UDim2.new(1, 0, 0.5, 0),
+            Size = UDim2.fromOffset(32, 32),
+            Text = "",
+            Parent = Container,
+        })
+        table.insert(Library.Corners, New("UICorner", {
+            CornerRadius = UDim.new(0, 6),
+            Parent = LogoutButton,
+        }))
+
+        local LogoutIcon = Library:GetIcon("log-out")
+        local LogoutImage
+        if LogoutIcon then
+            LogoutImage = New("ImageLabel", {
+                AnchorPoint = Vector2.new(0.5, 0.5),
+                BackgroundTransparency = 1,
+                Position = UDim2.fromScale(0.5, 0.5),
+                Size = UDim2.fromOffset(16, 16),
+                Parent = LogoutButton,
+            })
+            Library:ApplyLucideIcon(LogoutImage, LogoutIcon)
+        else
+            LogoutButton.Text = "⎋"
+            LogoutButton.TextSize = 14
+        end
+
+        LogoutButton.MouseEnter:Connect(function()
+            TweenService:Create(LogoutButton, Library.TweenInfo, {
+                BackgroundColor3 = Library.Scheme.AccentColor,
+            }):Play()
+        end)
+        LogoutButton.MouseLeave:Connect(function()
+            TweenService:Create(LogoutButton, Library.TweenInfo, {
+                BackgroundColor3 = Library.Scheme.MainColor,
+            }):Play()
+        end)
+        LogoutButton.MouseButton1Click:Connect(function()
+            if UserProfileRefs.LogoutCallback then
+                Library:SafeCallback(UserProfileRefs.LogoutCallback)
+            end
+        end)
+
+        UserProfileRefs.Holder = Holder
+        UserProfileRefs.Avatar = Avatar
+        UserProfileRefs.UsernameLabel = UsernameLabel
+        UserProfileRefs.StatusBadge = StatusBadge
+        UserProfileRefs.StatusLabel = StatusLabel
+    end
+
+    function Window:SetUserProfile(Info)
+        Info = Info or {}
+        EnsureUserProfile()
+
+        UserProfileRefs.Holder.Visible = true
+        UserProfileRefs.Holder.Size = UDim2.new(0, TitleHolder.Size.X.Offset, 0, 56)
+
+        if Info.UserId then
+            UserProfileRefs.Avatar.Image = string.format(
+                "https://www.roblox.com/headshot-thumbnail/image?userId=%s&width=150&height=150&format=png",
+                tostring(Info.UserId)
+            )
+        elseif Info.Avatar then
+            UserProfileRefs.Avatar.Image = tostring(Info.Avatar)
+        end
+
+        if Info.Name then
+            UserProfileRefs.OriginalName = tostring(Info.Name)
+            UserProfileRefs.UsernameLabel.Text = UserProfileRefs.NameVisible and UserProfileRefs.OriginalName or "••••••"
+        end
+
+        if Info.Status then
+            local StatusText = string.upper(tostring(Info.Status))
+            UserProfileRefs.StatusLabel.Text = StatusText
+
+            local StatusColor = Info.StatusColor
+            if typeof(StatusColor) ~= "Color3" then
+                local Lower = string.lower(StatusText)
+                if Lower == "premium" or Lower == "vip" then
+                    StatusColor = Color3.fromRGB(255, 185, 0)
+                elseif Lower == "admin" or Lower == "owner" then
+                    StatusColor = Color3.fromRGB(255, 85, 85)
+                elseif Lower == "free" then
+                    StatusColor = Color3.fromRGB(100, 100, 100)
+                else
+                    StatusColor = Library.Scheme.AccentColor
+                end
+            end
+            UserProfileRefs.StatusBadge.BackgroundColor3 = StatusColor
+        end
+
+        if typeof(Info.OnLogout) == "function" then
+            UserProfileRefs.LogoutCallback = Info.OnLogout
+        end
+
+        -- shrink tab list so profile doesn't overlap
+        local Width = TitleHolder.Size.X.Offset
+        Tabs.Size = UDim2.new(0, Width, 1, -70 - 56)
+
+        return Window
+    end
+
+    function Window:HideUserProfile()
+        if UserProfileRefs.Holder then
+            UserProfileRefs.Holder.Visible = false
+            local Width = TitleHolder.Size.X.Offset
+            Tabs.Size = UDim2.new(0, Width, 1, -70)
+        end
+        return Window
+    end
+
     function Window:SetBackgroundImage(Image: string)
         local ValidIcon = false
 
@@ -15159,6 +16254,123 @@ function Library:CreateWindow(WindowInfo)
         HasBackgroundImage = ValidIcon
         WindowInfo.BackgroundImage = Image
     end
+
+    function Window:SetBackgroundVideo(Video: string | number?)
+        WindowInfo.BackgroundVideo = Video
+
+        local function ResolveVideoId(Value)
+            if typeof(Value) == "number" then
+                return "rbxassetid://" .. tostring(Value)
+            end
+            if typeof(Value) == "string" then
+                if Value:match("^rbxassetid://") or Value:match("^rbxasset://") then
+                    return Value
+                end
+                if tonumber(Value) then
+                    return "rbxassetid://" .. Value
+                end
+                return Value
+            end
+            return nil
+        end
+
+        if not Video then
+            if BackgroundVideoFrame then
+                BackgroundVideoFrame:Destroy()
+                BackgroundVideoFrame = nil
+            end
+            return Window
+        end
+
+        local VideoId = ResolveVideoId(Video)
+        if not VideoId then
+            return Window
+        end
+
+        if not BackgroundVideoFrame then
+            BackgroundVideoFrame = New("VideoFrame", {
+                BackgroundTransparency = 1,
+                Looped = WindowInfo.BackgroundVideoLooped ~= false,
+                Playing = WindowInfo.BackgroundVideoPlaying ~= false,
+                Volume = tonumber(WindowInfo.BackgroundVideoVolume) or 0,
+                ImageTransparency = math.clamp(tonumber(WindowInfo.BackgroundVideoTransparency) or 0.15, 0, 1),
+                ZIndex = 0,
+                Size = UDim2.fromScale(1, 1),
+                Parent = MainFrame,
+            })
+        end
+
+        BackgroundVideoFrame.Video = VideoId
+        BackgroundVideoFrame.Playing = WindowInfo.BackgroundVideoPlaying ~= false
+        return Window
+    end
+
+    function Window:SetBackgroundVideoPlaying(Playing: boolean)
+        WindowInfo.BackgroundVideoPlaying = Playing == true
+        if BackgroundVideoFrame then
+            BackgroundVideoFrame.Playing = WindowInfo.BackgroundVideoPlaying
+        end
+        return Window
+    end
+
+    function Window:SetBackgroundVideoVolume(Volume: number)
+        WindowInfo.BackgroundVideoVolume = math.clamp(tonumber(Volume) or 0, 0, 10)
+        if BackgroundVideoFrame then
+            BackgroundVideoFrame.Volume = WindowInfo.BackgroundVideoVolume
+        end
+        return Window
+    end
+
+    function Window:SetBackgroundVideoTransparency(Transparency: number)
+        WindowInfo.BackgroundVideoTransparency = math.clamp(tonumber(Transparency) or 0.15, 0, 1)
+        if BackgroundVideoFrame then
+            BackgroundVideoFrame.ImageTransparency = WindowInfo.BackgroundVideoTransparency
+        end
+        return Window
+    end
+
+    function Window:SetFullscreenBackground(Enabled: boolean, Options: { [string]: any }?)
+        Options = typeof(Options) == "table" and Options or {}
+        WindowInfo.FullscreenBackground = Enabled == true
+
+        if not Enabled then
+            if FullscreenBackdrop then
+                FullscreenBackdrop.Visible = false
+            end
+            return Window
+        end
+
+        if not FullscreenBackdrop then
+            FullscreenBackdrop = New("Frame", {
+                BackgroundColor3 = Options.Color or WindowInfo.FullscreenBackgroundColor or Color3.new(0, 0, 0),
+                BackgroundTransparency = math.clamp(
+                    tonumber(Options.Transparency or WindowInfo.FullscreenBackgroundTransparency) or 0.35,
+                    0,
+                    1
+                ),
+                Size = UDim2.fromScale(1, 1),
+                ZIndex = -5,
+                Parent = ScreenGui,
+            })
+        else
+            if Options.Color then
+                FullscreenBackdrop.BackgroundColor3 = Options.Color
+            end
+            if Options.Transparency then
+                FullscreenBackdrop.BackgroundTransparency = math.clamp(tonumber(Options.Transparency), 0, 1)
+            end
+        end
+
+        FullscreenBackdrop.Visible = Library.Toggled == true
+        return Window
+    end
+
+    function Window:AddPopup(Info, Time)
+        return Library:CreatePopup(Info, Time)
+    end
+
+    Window.ShowPopup = Window.AddPopup
+    Window.Popup = Window.AddPopup
 
     --// Glow \\--
     --// Manual, opt-in soft glow drawn behind the window. It is never enabled or
@@ -15268,6 +16480,152 @@ function Library:CreateWindow(WindowInfo)
             GlowImage.Visible = false
             GlowImage.ImageTransparency = GlowConfig.Transparency
         end
+
+        return Window
+    end
+
+    --// Soft drop shadow (separate from accent glow)
+    local function EnsureShadow()
+        if ShadowImage then
+            return
+        end
+
+        local ShadowColorValue = GetSchemeValue(ShadowConfig.Color) or Library.Scheme.DarkColor
+
+        ShadowImage = New("ImageLabel", {
+            Active = false,
+            BackgroundTransparency = 1,
+            Image = "rbxassetid://6014261993",
+            ImageColor3 = ShadowColorValue,
+            ImageTransparency = ShadowConfig.Transparency,
+            ScaleType = Enum.ScaleType.Slice,
+            SliceCenter = Rect.new(49, 49, 450, 450),
+            Visible = false,
+            ZIndex = -1,
+            Parent = ScreenGui,
+        })
+
+        if typeof(ShadowConfig.Color) == "string" then
+            Library:AddToRegistry(ShadowImage, { ImageColor3 = ShadowConfig.Color })
+        end
+
+        Library:GiveSignal(RunService.RenderStepped:Connect(function()
+            if not (ShadowImage and MainFrame) then
+                return
+            end
+
+            local Target = if (MiniFrame and MiniFrame.Visible) then MiniFrame else MainFrame
+            local ShouldShow = ShadowConfig.Enabled and Target.Visible and Library.Toggled
+            ShadowImage.Visible = ShouldShow
+            if not ShouldShow then
+                return
+            end
+
+            local Size = ShadowConfig.Size
+            local Offset = ShadowConfig.Offset
+            ShadowImage.Position = UDim2.fromOffset(
+                Target.AbsolutePosition.X - Size + Offset.X,
+                Target.AbsolutePosition.Y - Size + Offset.Y
+            )
+            ShadowImage.Size = UDim2.fromOffset(
+                Target.AbsoluteSize.X + Size * 2,
+                Target.AbsoluteSize.Y + Size * 2
+            )
+        end))
+    end
+
+    function Window:SetShadow(Enabled: boolean, Options: { [string]: any }?)
+        Options = typeof(Options) == "table" and Options or {}
+
+        if typeof(Options.Transparency) == "number" then
+            ShadowConfig.Transparency = math.clamp(Options.Transparency, 0, 1)
+        end
+        if typeof(Options.Size) == "number" then
+            ShadowConfig.Size = math.max(0, Options.Size)
+        end
+        if typeof(Options.Offset) == "Vector2" then
+            ShadowConfig.Offset = Options.Offset
+        end
+        if Options.Color ~= nil then
+            ShadowConfig.Color = Options.Color
+            if ShadowImage then
+                local Resolved = typeof(Options.Color) == "Color3" and Options.Color
+                    or GetSchemeValue(Options.Color)
+                    or Library.Scheme.DarkColor
+                ShadowImage.ImageColor3 = Resolved
+                if typeof(Options.Color) == "string" then
+                    Library:AddToRegistry(ShadowImage, { ImageColor3 = Options.Color })
+                else
+                    Library:RemoveFromRegistry(ShadowImage)
+                end
+            end
+        end
+
+        ShadowConfig.Enabled = Enabled == true
+        WindowInfo.Shadow = ShadowConfig.Enabled
+
+        if ShadowConfig.Enabled then
+            EnsureShadow()
+            if ShadowImage then
+                ShadowImage.ImageTransparency = ShadowConfig.Transparency
+            end
+        elseif ShadowImage then
+            ShadowImage.Visible = false
+        end
+
+        return Window
+    end
+
+    --// Soft gradient overlay on the main window
+    function Window:SetGradient(Enabled: boolean, GradientInfo: { [string]: any }?)
+        GradientInfo = typeof(GradientInfo) == "table" and GradientInfo or {}
+        WindowInfo.Gradient = Enabled == true
+
+        if not Enabled then
+            if GradientFrame then
+                GradientFrame.Visible = false
+            end
+            return Window
+        end
+
+        if not GradientFrame then
+            GradientFrame = New("Frame", {
+                BackgroundColor3 = Color3.new(1, 1, 1),
+                BackgroundTransparency = 0,
+                BorderSizePixel = 0,
+                Size = UDim2.fromScale(1, 1),
+                ZIndex = 0,
+                Parent = MainFrame,
+            })
+            -- Put behind content
+            GradientFrame.ZIndex = 0
+            local Gradient = New("UIGradient", {
+                Parent = GradientFrame,
+            })
+            GradientFrame:SetAttribute("GradientRef", true)
+        end
+
+        local Gradient = GradientFrame:FindFirstChildOfClass("UIGradient")
+        if not Gradient then
+            Gradient = New("UIGradient", { Parent = GradientFrame })
+        end
+
+        local ColorSeq = GradientInfo.ColorSequence or WindowInfo.GradientColorSequence
+        if not ColorSeq then
+            ColorSeq = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Library.Scheme.AccentColor),
+                ColorSequenceKeypoint.new(1, Library.Scheme.BackgroundColor),
+            })
+        end
+        Gradient.Color = ColorSeq
+
+        local Transparency = GradientInfo.Transparency or WindowInfo.GradientTransparency
+        if Transparency then
+            Gradient.Transparency = Transparency
+        end
+
+        Gradient.Rotation = GradientInfo.Rotation or WindowInfo.GradientRotation or 35
+        GradientFrame.Visible = true
 
         return Window
     end
@@ -15645,8 +17003,14 @@ function Library:CreateWindow(WindowInfo)
 
         TitleHolder.Size = UDim2.new(0, Width, 1, 0)
         RightWrapper.Size = UDim2.new(1, -Width - 57 - RightBarInset - 1, 1, -16)
-        Tabs.Size = UDim2.new(0, Width, 1, -70)
+
+        local ProfileHeight = (UserProfileRefs.Holder and UserProfileRefs.Holder.Visible) and 56 or 0
+        Tabs.Size = UDim2.new(0, Width, 1, -70 - ProfileHeight)
         Container.Size = UDim2.new(1, -Width - 1, 1, -70)
+
+        if UserProfileRefs.Holder then
+            UserProfileRefs.Holder.Size = UDim2.new(0, Width, 0, 56)
+        end
 
         if WindowInfo.EnableCompacting then
             ApplyCompact()
@@ -19425,6 +20789,24 @@ function Library:CreateWindow(WindowInfo)
         Window:SetGlow(true)
     end
 
+    --// Soft shadow is on by default (low-risk polish). Disable with Shadow = false.
+    if WindowInfo.Shadow ~= false then
+        Window:SetShadow(true, {
+            Transparency = WindowInfo.ShadowTransparency,
+            Size = WindowInfo.ShadowSize,
+            Offset = WindowInfo.ShadowOffset,
+            Color = WindowInfo.ShadowColor,
+        })
+    end
+
+    if WindowInfo.Gradient then
+        Window:SetGradient(true, {
+            ColorSequence = WindowInfo.GradientColorSequence,
+            Transparency = WindowInfo.GradientTransparency,
+            Rotation = WindowInfo.GradientRotation,
+        })
+    end
+
     return Window
 end
 
@@ -20448,6 +21830,7 @@ function Library:Unload()
     table.clear(Library.Notifications)
     table.clear(Library.NotificationHistory)
     table.clear(Library.Dialogues)
+    table.clear(Library.Popups)
     table.clear(Library.DraggableElements)
     table.clear(Library.KeybindToggles)
     table.clear(Library.DependencyBoxes)
