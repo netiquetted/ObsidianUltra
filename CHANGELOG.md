@@ -1,3 +1,97 @@
+```diff
+# Obsidian UI — Build
+
+**Tanggal update:** Selasa, 8 September 2026  
+**File:** `Libary.lua`  
+**Base:** Obsidian UI (deividcomsono)
+---
+
+## Fitur yang ditambahkan
+
+### Dari custom mod (sebelumnya)
+| Fitur | API | Keterangan |
+|--------|-----|------------|
+| **Window Tag / Badge** | `Window:AddTag(...)` | Badge di title bar (PREMIUM, v1.6.0, dll) |
+| **Window Shadow** | `Shadow = true` / `Window:SetShadow(...)` | Bayangan lembut (default ON) |
+| **Window Glow** | `Glow = true` / `Window:SetGlow(...)` | Halo accent di belakang window |
+| **Gradient** | `Gradient = true` / `Window:SetGradient(...)` | Overlay gradient di background |
+| **Label Badge** | `AddLabel({ Badge = "LIVE" })` | Badge kecil di label |
+| **Popup** | `Library:CreatePopup(...)` / `Window:AddPopup(...)` | Kartu notifikasi di tengah |
+| **Background Video** | `BackgroundVideo = id` / `SetBackgroundVideo` | Video sebagai background window |
+| **Fullscreen Background** | `FullscreenBackground = true` | Backdrop fullscreen saat UI buka |
+
+|--------|-----|------------|
+| **AddTable** | `Groupbox:AddTable(idx, info)` | Tabel data + sort per kolom |
+| **User Profile** | `Window:SetUserProfile(info)` | Kartu user di bawah sidebar |
+| **Hide Profile** | `Window:HideUserProfile()` | Sembunyikan profile |
+
+---
+
+## Contoh pemakaian singkat
+
+### Tag
+```lua
+Window:AddTag("PREMIUM")
+Window:AddTag({
+    Text = "v1.6.0",
+    BackgroundColor = "MainColor",
+    TextColor = "FontColor",
+})
+```
+
+### Shadow / Glow / Gradient
+```lua
+Library:CreateWindow({
+    Title = "Script",
+    Shadow = true,
+    Glow = false,
+    Gradient = true,
+})
+```
+
+### Popup
+```lua
+Window:AddPopup({
+    Title = "Loaded",
+    Description = "Script siap dipakai.",
+    Time = 4,
+    Actions = {
+        { Title = "OK", Variant = "Primary" },
+    },
+})
+```
+
+### Table (Sizsense)
+```lua
+local T = Groupbox:AddTable("List", {
+    Columns = { "#", "Name", "Value" },
+    Rows = {
+        { 1, "A", 100 },
+        { 2, "B", 250 },
+    },
+    MaxRows = 10,
+    Sortable = true,
+})
+T:AddRow({ 3, "C", 50 })
+```
+
+### User Profile (Sizsense)
+```lua
+Window:SetUserProfile({
+    Name = "PlayerName",
+    UserId = game.Players.LocalPlayer.UserId,
+    Status = "Premium",
+    OnLogout = function()
+        Library:Unload()
+    end,
+})
+
+
+---
+
+**Last updated:** 2026-09-08
+```
+
 ## 25.08.2026
 
 ```diff
